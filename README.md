@@ -12,3 +12,13 @@ converter.xyb_to_hex(x=0.3209, y=0.1541, brightness=1)
 ```
 
 Click [here](https://developers.meethue.com/develop/hue-api/supported-devices/) to see which color gamuts are supported for your device.
+
+## Installing hue-color-converter
+
+```shell
+pip install hue-color-converter
+```
+
+## License
+
+[MIT](./LICENSE.txt)
