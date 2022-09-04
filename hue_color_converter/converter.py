@@ -3,7 +3,7 @@ from typing import NamedTuple, NewType, Union
 from shapely.geometry import Point, Polygon
 from shapely.ops import nearest_points
 
-from hue_color_converter.gamuts import get_gamut, DEFAULT_GAMUT
+from hue_color_converter.gamuts import DEFAULT_GAMUT, get_gamut
 
 
 class RGB(NamedTuple):
@@ -52,7 +52,10 @@ class Converter:
 
     @staticmethod
     def reverse_gamma_correction(c: float) -> float:
-        return min(max(0.0, 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1.0 / 2.4) - 0.055), 1.0)
+        return min(
+            max(0.0, 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1.0 / 2.4) - 0.055),
+            1.0,
+        )
 
     @classmethod
     def rgb_gamma_correction(cls, rgb: RGB) -> RGB:
@@ -76,7 +79,7 @@ class Converter:
         x, y, _ = xyz
         s = sum(xyz)
 
-        return XY(x / s, y / s), y
+        return XY(x / s, y / s), Brightness(y)
 
     def xyz_to_xyb(self, xyz: XYZ):
         """
