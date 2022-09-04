@@ -26,6 +26,11 @@ class XY(NamedTuple):
 Brightness = NewType("Brightness", float)
 
 
+class XYB(NamedTuple):
+    xy: XY
+    brightness: Brightness
+
+
 class Converter:
     gamut: Polygon
 
@@ -72,16 +77,16 @@ class Converter:
         return XYZ(x, y, z)
 
     @staticmethod
-    def _xyz_to_xyb(xyz: XYZ) -> tuple[XY, Brightness]:
+    def _xyz_to_xyb(xyz: XYZ) -> XYB:
         """
         raw xy and brightness
         """
         x, y, _ = xyz
         s = sum(xyz)
 
-        return XY(x / s, y / s), Brightness(y)
+        return XYB(XY(x / s, y / s), Brightness(y))
 
-    def xyz_to_xyb(self, xyz: XYZ):
+    def xyz_to_xyb(self, xyz: XYZ) -> XYB:
         """
         Corrected xy and brightness
         """
@@ -90,14 +95,14 @@ class Converter:
         _xy = Point(xy)
 
         if self.gamut.contains(_xy):
-            return xy, b
+            return XYB(xy, b)
         nearest = nearest_points(self.gamut, _xy)[0]
-        return XY(nearest.x, nearest.y), b
+        return XYB(XY(nearest.x, nearest.y), b)
 
-    def rgb_to_xyb(self, rgb: RGB) -> tuple[XY, Brightness]:
+    def rgb_to_xyb(self, rgb: RGB) -> XYB:
         return self.xyz_to_xyb(self.rgb_to_xyz(self.rgb_gamma_correction(rgb)))
 
-    def hex_to_xyb(self, hex_color: str) -> tuple[XY, Brightness]:
+    def hex_to_xyb(self, hex_color: str) -> XYB:
         return self.rgb_to_xyb(self.hex_to_rgb(hex_color))
 
     @staticmethod
