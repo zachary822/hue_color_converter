@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "hue-color-converter"
-version = "0.2.1"
-description = ""
+version = "0.2.2"
+description = "color converter for philips hue"
 authors = ["Zachary Juang <zachary822@me.com>"]
 readme = "README.md"
 license = "MIT"

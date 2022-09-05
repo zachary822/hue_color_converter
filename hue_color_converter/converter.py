@@ -24,17 +24,13 @@ D65_INV = np.array(
 )
 
 
-class Converter:
-    gamut: Polygon
-
-    def __init__(self, gamut: Union[str, list[tuple[float, float]], Polygon, None] = None):
-        if isinstance(gamut, str):
-            self.gamut = get_gamut(gamut)
+class BaseConverter:
+    def __init__(self, gamut: Union[list[tuple[float, float]], Polygon, None] = None):
+        if gamut is None:
+            self.gamut = DEFAULT_GAMUT
         elif isinstance(gamut, list):
             self.gamut = Polygon(gamut)
-        elif gamut is None:
-            self.gamut = DEFAULT_GAMUT
-        else:
+        elif isinstance(gamut, Polygon):
             self.gamut = gamut
 
     @staticmethod
@@ -51,25 +47,24 @@ class Converter:
 
     @classmethod
     def rgb_reverse_gamma_correction(cls, rgb):
-        rgb = rgb.clip(0, None)
-        return np.where(rgb <= 0.0031308, rgb * 12.92, 1.055 * np.power(rgb, (1.0 / 2.4)) - 0.055).clip(0, 1)
+        return np.where(rgb <= 0.0031308, rgb * 12.92, 1.055 * np.power(rgb, (1.0 / 2.4)) - 0.055)
 
     @staticmethod
-    def rgb_to_XYZ(rgb):
+    def rgb_to_xyz(rgb):
         return D65 @ rgb
 
     @staticmethod
-    def _XYZ_to_xyY(xyz):
+    def _xyz_to_xyy(xyz):
         """
         raw xy and brightness
         """
         return xyz[:2, ...] / xyz.sum(axis=0), xyz[1]
 
-    def XYZ_to_xyY(self, xyz):
+    def xyz_to_xyy(self, xyz):
         """
         Corrected xy and brightness
         """
-        xy, b = self._XYZ_to_xyY(xyz)
+        xy, Y = self._xyz_to_xyy(xyz)
         if xy.ndim > 1:
             points = map(Point, xy.T)
         else:
@@ -86,20 +81,22 @@ class Converter:
                 continue
             result += nearest_points(self.gamut, point)[0].coords
 
-        return np.array(result).squeeze(), b
+        return np.array(result).squeeze(), Y
 
-    def rgb_to_xyY(self, rgb):
+    def rgb_to_xyy(self, rgb):
         if not isinstance(rgb, np.ndarray):
             rgb = np.array(rgb)
         rgb = rgb.T
 
-        return self.XYZ_to_xyY(self.rgb_to_XYZ(self.rgb_gamma_correction(rgb)))
+        if rgb.shape[0] != 3:
+            raise ValueError("rgb should be arranged column wise")
+        return self.xyz_to_xyy(self.rgb_to_xyz(self.rgb_gamma_correction(rgb)))
 
-    def hex_to_xyY(self, hex_color: str):
-        return self.rgb_to_xyY(self.hex_to_rgb(hex_color))
+    def hex_to_xyy(self, hex_color: str):
+        return self.rgb_to_xyy(self.hex_to_rgb(hex_color))
 
     @staticmethod
-    def xyY_to_XYZ(xy, b: np.ndarray):
+    def xyy_to_xyz(xy, b: np.ndarray):
         if (b > 1).any():
             b /= 100
         x, y = xy
@@ -108,16 +105,18 @@ class Converter:
         return np.array((b / y * x, b, b / y * z)).reshape(3, -1)
 
     @staticmethod
-    def XYZ_to_rgb(xyz):
+    def xyz_to_rgb(xyz, scale: bool = False):
         rgb = D65_INV @ xyz
 
-        col_max = rgb.max(axis=0)
-        rgb /= np.where(col_max > 1, col_max, 1)  # scale if rgb values > 1
+        if scale:
+            col_max = rgb.max(axis=0)
+            rgb /= np.where(col_max > 1, col_max, 1)  # scale if rgb values > 1
+            return rgb
 
-        return rgb
+        return rgb.clip(0, 1)
 
     @classmethod
-    def xyY_to_rgb(cls, xy, Y: Optional[Union[float, Sequence[float]]] = None):
+    def xyy_to_rgb(cls, xy, Y: Optional[Union[float, Sequence[float]]] = None, scale: bool = False):
         if not isinstance(xy, np.ndarray):
             xy = np.array(xy)
         xy = xy.T
@@ -129,16 +128,25 @@ class Converter:
         elif not isinstance(Y, np.ndarray):
             Y = np.array(Y)
 
-        return cls.rgb_reverse_gamma_correction(cls.XYZ_to_rgb(cls.xyY_to_XYZ(xy, Y)))
+        return cls.rgb_reverse_gamma_correction(cls.xyz_to_rgb(cls.xyy_to_xyz(xy, Y), scale=scale))
 
     @staticmethod
     def rgb_to_hex(rgb):
         return bytes(rgb).hex()
 
     @classmethod
-    def xyY_to_hex(cls, xy, Y: Optional[Union[float, Sequence[float]]] = None) -> Union[str, Sequence[str]]:
-        rgb = np.round(cls.xyY_to_rgb(xy, Y) * 255).clip(0, 255).astype(np.uint8).T.squeeze()
+    def xyy_to_hex(
+        cls, xy, Y: Optional[Union[float, Sequence[float]]] = None, scale: bool = False
+    ) -> Union[str, Sequence[str]]:
+        rgb = np.round(cls.xyy_to_rgb(xy, Y, scale=scale) * 255).clip(0, 255).astype(np.uint8).T.squeeze()
 
         if rgb.ndim > 1:
             return [cls.rgb_to_hex(c) for c in rgb]
         return cls.rgb_to_hex(rgb)
+
+
+class Converter(BaseConverter):
+    def __init__(self, gamut: Union[str, list[tuple[float, float]], Polygon, None] = None):
+        if isinstance(gamut, str):
+            gamut = get_gamut(gamut)
+        super().__init__(gamut=gamut)
