@@ -1,5 +1,7 @@
-from typing import NamedTuple, NewType, Union
+from collections.abc import Sequence
+from typing import NamedTuple, NewType, Optional, Union
 
+import numpy as np
 from shapely.geometry import Point, Polygon
 from shapely.ops import nearest_points
 
@@ -27,8 +29,25 @@ Brightness = NewType("Brightness", float)
 
 
 class XYB(NamedTuple):
-    xy: XY
+    xy: np.ndarray
     brightness: Brightness
+
+
+D65 = np.array(
+    [
+        [0.4124, 0.3576, 0.1805],
+        [0.2126, 0.7152, 0.0722],
+        [0.0193, 0.1192, 0.9505],
+    ]
+)
+
+D65_INV = np.array(
+    [
+        [3.2406255, -1.5372080, -0.4986268],
+        [-0.9689307, 1.8757561, 0.0415175],
+        [0.0557101, -0.2040211, 1.0569959],
+    ]
+)
 
 
 class Converter:
@@ -45,92 +64,101 @@ class Converter:
             self.gamut = gamut
 
     @staticmethod
-    def hex_to_rgb(hex_color: str) -> RGB:
+    def hex_to_rgb(hex_color: str):
         b = bytes.fromhex(hex_color)
         if len(b) != 3:
             raise ValueError("should be rgb hex code")
-        return RGB._make(c / 255 for c in b)
-
-    @staticmethod
-    def gamma_correction(c: float) -> float:
-        return ((c + 0.055) / 1.055) ** 2.4 if c > 0.04045 else c / 12.92
-
-    @staticmethod
-    def reverse_gamma_correction(c: float) -> float:
-        return min(
-            max(0.0, 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1.0 / 2.4) - 0.055),
-            1.0,
-        )
+        return np.fromiter(b, np.uint8) / 255
 
     @classmethod
-    def rgb_gamma_correction(cls, rgb: RGB) -> RGB:
-        return RGB._make(map(cls.gamma_correction, rgb))
+    def rgb_gamma_correction(cls, rgb: np.ndarray):
+        rgb = rgb.clip(0, None)
+        return np.where(rgb > 0.04045, ((rgb + 0.055) / 1.055) ** 2.4, (rgb / 12.92))
+
+    @classmethod
+    def rgb_reverse_gamma_correction(cls, rgb):
+        rgb = rgb.clip(0, None)
+        return np.where(rgb <= 0.0031308, rgb * 12.92, 1.055 * np.power(rgb, (1.0 / 2.4)) - 0.055).clip(0, 1)
 
     @staticmethod
-    def rgb_to_xyz(rgb: RGB) -> XYZ:
-        r, g, b = rgb
-
-        x = r * 0.4124 + g * 0.3576 + b * 0.1805
-        y = r * 0.2126 + g * 0.7152 + b * 0.0722
-        z = r * 0.0193 + g * 0.1192 + b * 0.9505
-
-        return XYZ(x, y, z)
+    def rgb_to_XYZ(rgb):
+        return D65 @ rgb
 
     @staticmethod
-    def _xyz_to_xyb(xyz: XYZ) -> XYB:
+    def _XYZ_to_xyY(xyz):
         """
         raw xy and brightness
         """
-        x, y, _ = xyz
-        s = sum(xyz)
+        return xyz[:2, ...] / xyz.sum(axis=0), xyz[1]
 
-        return XYB(XY(x / s, y / s), Brightness(y))
-
-    def xyz_to_xyb(self, xyz: XYZ) -> XYB:
+    def XYZ_to_xyY(self, xyz):
         """
         Corrected xy and brightness
         """
+        xy, b = self._XYZ_to_xyY(xyz)
+        if xy.ndim > 1:
+            points = map(Point, xy.T)
+        else:
+            points = [Point(xy)]
 
-        xy, b = self._xyz_to_xyb(xyz)
-        _xy = Point(xy)
+        result = []
 
-        if self.gamut.contains(_xy):
-            return XYB(xy, b)
-        nearest = nearest_points(self.gamut, _xy)[0]
-        return XYB(XY(nearest.x, nearest.y), b)
+        for point in points:
+            if point.is_empty:
+                result.append((np.nan, np.nan))
+                continue
+            if self.gamut.contains(point):
+                result += point.coords
+                continue
+            result += nearest_points(self.gamut, point)[0].coords
 
-    def rgb_to_xyb(self, rgb: RGB) -> XYB:
-        return self.xyz_to_xyb(self.rgb_to_xyz(self.rgb_gamma_correction(rgb)))
+        return np.array(result).squeeze(), b
 
-    def hex_to_xyb(self, hex_color: str) -> XYB:
-        return self.rgb_to_xyb(self.hex_to_rgb(hex_color))
+    def rgb_to_xyY(self, rgb):
+        if not isinstance(rgb, np.ndarray):
+            rgb = np.array(rgb)
+        rgb = rgb.T
+
+        return self.XYZ_to_xyY(self.rgb_to_XYZ(self.rgb_gamma_correction(rgb)))
+
+    def hex_to_xyY(self, hex_color: str):
+        return self.rgb_to_xyY(self.hex_to_rgb(hex_color))
 
     @staticmethod
-    def xyb_to_xyz(x: float, y: float, b: float = 1) -> XYZ:
-        if b > 1:
+    def xyY_to_XYZ(xy, b: np.ndarray):
+        if (b > 1).any():
             b /= 100
+        x, y = xy
         z = 1 - x - y
 
-        return XYZ(b / y * x, b, b / y * z)
+        return np.array((b / y * x, b, b / y * z)).reshape(3, -1)
 
     @staticmethod
-    def xyz_to_rgb(xyz: XYZ) -> RGB:
-        x, y, z = xyz
-
-        r = x * 3.2406255 - y * 1.5372080 - z * 0.4986268
-        g = -x * 0.9689307 + y * 1.8757561 + z * 0.0415175
-        b = x * 0.0557101 - y * 0.2040211 + z * 1.0569959
-
-        return RGB(r, g, b)
+    def XYZ_to_rgb(xyz):
+        return D65_INV @ xyz
 
     @classmethod
-    def rgb_reverse_gamma_correction(cls, rgb: RGB) -> RGB:
-        return RGB._make(map(cls.reverse_gamma_correction, rgb))
+    def xyY_to_rgb(cls, xy, Y: Optional[Union[float, Sequence[float]]] = None):
+        if not isinstance(xy, np.ndarray):
+            xy = np.array(xy).T
+
+        if Y is None:
+            Y = np.ones(xy.shape[1])
+        elif isinstance(Y, float):
+            Y = np.array([Y])
+        elif not isinstance(Y, np.ndarray):
+            Y = np.array(Y)
+
+        return cls.rgb_reverse_gamma_correction(cls.XYZ_to_rgb(cls.xyY_to_XYZ(xy, Y)))
+
+    @staticmethod
+    def rgb_to_hex(rgb):
+        return bytes(rgb).hex()
 
     @classmethod
-    def xyb_to_rgb(cls, x: float, y: float, brightness: float = 1) -> RGB:
-        return cls.rgb_reverse_gamma_correction(cls.xyz_to_rgb(cls.xyb_to_xyz(x, y, brightness)))
+    def xyY_to_hex(cls, xy, Y: Optional[Union[float, Sequence[float]]] = None) -> Union[str, Sequence[str]]:
+        rgb = np.round(cls.xyY_to_rgb(xy, Y) * 255).clip(0, 255).astype(np.uint8).T.squeeze()
 
-    @classmethod
-    def xyb_to_hex(cls, x: float, y: float, brightness: float = 1) -> str:
-        return bytes(round(c * 255) for c in cls.xyb_to_rgb(x, y, brightness)).hex()
+        if rgb.ndim > 1:
+            return [cls.rgb_to_hex(c) for c in rgb]
+        return cls.rgb_to_hex(rgb)

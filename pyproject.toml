@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "hue-color-converter"
-version = "0.1.2"
+version = "0.2.0"
 description = ""
 authors = ["Zachary Juang <zachary822@me.com>"]
 readme = "README.md"
@@ -8,8 +8,9 @@ license = "MIT"
 packages = [{include = "hue_color_converter"}]
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = "^3.10,<3.12"
 Shapely = "^1.8.4"
+numpy = "^1.23.2"
 
 
 [build-system]
