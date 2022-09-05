@@ -135,12 +135,18 @@ class Converter:
 
     @staticmethod
     def XYZ_to_rgb(xyz):
-        return D65_INV @ xyz
+        rgb = D65_INV @ xyz
+
+        col_max = rgb.max(axis=0)
+        rgb /= np.where(col_max > 1, col_max, 1)  # scale if rgb values > 1
+
+        return rgb
 
     @classmethod
     def xyY_to_rgb(cls, xy, Y: Optional[Union[float, Sequence[float]]] = None):
         if not isinstance(xy, np.ndarray):
-            xy = np.array(xy).T
+            xy = np.array(xy)
+        xy = xy.T
 
         if Y is None:
             Y = np.ones(xy.shape[1])
