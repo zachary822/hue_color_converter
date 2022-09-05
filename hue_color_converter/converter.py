@@ -1,37 +1,11 @@
 from collections.abc import Sequence
-from typing import NamedTuple, NewType, Optional, Union
+from typing import Optional, Union
 
 import numpy as np
 from shapely.geometry import Point, Polygon
 from shapely.ops import nearest_points
 
 from hue_color_converter.gamuts import DEFAULT_GAMUT, get_gamut
-
-
-class RGB(NamedTuple):
-    r: float
-    g: float
-    b: float
-
-
-class XYZ(NamedTuple):
-    x: float
-    y: float
-    z: float
-
-
-class XY(NamedTuple):
-    x: float
-    y: float
-
-
-Brightness = NewType("Brightness", float)
-
-
-class XYB(NamedTuple):
-    xy: np.ndarray
-    brightness: Brightness
-
 
 D65 = np.array(
     [
