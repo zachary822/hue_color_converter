@@ -1,11 +1,14 @@
 [tool.poetry]
 name = "hue-color-converter"
-version = "0.2.2"
+version = "0.2.3"
 description = "color converter for philips hue"
 authors = ["Zachary Juang <zachary822@me.com>"]
 readme = "README.md"
 license = "MIT"
 packages = [{include = "hue_color_converter"}]
+
+[tool.poetry.urls]
+repository = "https://github.com/zachary822/hue_color_converter"
 
 [tool.poetry.dependencies]
 python = "^3.10,<3.12"
